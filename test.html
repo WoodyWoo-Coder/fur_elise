@@ -43,10 +43,10 @@ const stepDuration = (60 / BPM) / 4;
 let nextStepTime = 0.0;
 let currentStep = 0;
 
-// Cycle A Definitions (6 steps) -> Corrected Bass and Snare alignments
-const bassPatternA =  [1, 0, 0, 1, 0, 0]; // B 0 0 B 0 0
-const snarePatternA = [0, 0, 0, 0, 1, 0]; // 0 0 0 0 S 0
-const hihatPatternA = [1, 1, 1, 1, 1, 1]; // H H H H H H
+// Cycle A Definitions (6 steps)
+const bassPatternA =  [1, 0, 0, 1, 0, 0]; 
+const snarePatternA = [0, 0, 0, 0, 1, 0]; 
+const hihatPatternA = [1, 1, 1, 1, 1, 1]; 
 
 // Fill Pattern 1 (Cycles 4, 8, 12, 26, 30, 34, 48) -> C B C B S S
 const cymbalPatternFill = [1, 0, 1, 0, 0, 0];
@@ -61,9 +61,10 @@ const snarePatternAltFillDouble = [0, 0, 0, 0, 1, 1];
 const bassPatternAltFillSingle =  [1, 1, 0, 1, 0, 0];
 const snarePatternAltFillSingle = [0, 0, 0, 0, 1, 0];
 
-// Block Phase Part 1 (Cycles 16-19, 38-41) -> [C+B] 0 B 0 B 0
+// Block Phase Part 1 (Cycles 16-19, 38-41) -> Updated to [C+B] 0 B S B 0
 const cymbalPatternBlockP1 = [1, 0, 0, 0, 0, 0];
 const bassPatternBlockP1 =   [1, 0, 1, 0, 1, 0];
+const snarePatternBlockP1 =  [0, 0, 0, 1, 0, 0]; // Snare added on step 3
 
 // Block Phase Part 2 (Cycles 20-21, 42-43) -> B B S B S S
 const bassPatternBlockP2 =   [1, 1, 0, 1, 0, 0];
@@ -156,10 +157,11 @@ function scheduleStep(step, time) {
             return;
         }
 
-        // Branch 1: Phase Block P1
+        // Branch 1: Phase Block P1 (With new snare modification applied)
         if (blockPart1Cycles.has(currentCycle)) {
             if (cymbalPatternBlockP1[loopIndex] === 1) playBuffer(cymbalBuffer, time, 0.5, 0.8);
             if (bassPatternBlockP1[loopIndex] === 1)   playBuffer(bassBuffer, time, 1.3);
+            if (snarePatternBlockP1[loopIndex] === 1)  playBuffer(snareBuffer, time, 0.35);
         }
         // Branch 2: Phase Block P2
         else if (blockPart2Cycles.has(currentCycle)) {
@@ -186,7 +188,7 @@ function scheduleStep(step, time) {
             if (bassPatternAltFillSingle[loopIndex] === 1)  playBuffer(bassBuffer, time, 1.3);
             if (snarePatternAltFillSingle[loopIndex] === 1) playBuffer(snareBuffer, time, 0.35);
         } 
-        // Branch 7: Cycle A (w/ corrected B00B00 and 0000S0 alignments)
+        // Branch 7: Cycle A
         else {
             if (bassPatternA[loopIndex] === 1)  playBuffer(bassBuffer, time, 1.3);
             if (snarePatternA[loopIndex] === 1) playBuffer(snareBuffer, time, 0.35);
@@ -231,7 +233,7 @@ startBtn.addEventListener('click', async () => {
         isPlaying = true;
         scheduler();
         startBtn.innerText = "Stop";
-        statusDiv.innerText = "Status: Running under 70.5 BPM logic with corrected Cycle A groove layout.";
+        statusDiv.innerText = "Status: Running 70.5 BPM layout with driving mid-phase snare hits.";
     } else {
         clearTimeout(timerId);
         piano.pause();
