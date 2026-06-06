@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Für Elise - Half-Time Drum Arrangement</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #1e1e24; color: #fff; text-align: center; padding-top: 50px; }
+        button { padding: 20px 40px; font-size: 20px; font-weight: bold; background-color: #00adb5; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        button:hover { background-color: #007a80; }
+        #status { margin-top: 30px; color: #00adb5; font-size: 18px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Für Elise - Master Drum Arranger (70.5 BPM Half-Time)</h1>
+    <button id="startBtn">Play Arrangement</button>
+    <div id="status">Status: Click Play to initialize audio components.</div>
+
+<script>
+let audioCtx = null;
+let isPlaying = false;
+let timerId = null;
+
+// Audio Buffers
+let bassBuffer = null;
+let snareBuffer = null;
+let hihatBuffer = null;
+let cymbalBuffer = null;
+
+let pianoGainNode = null;
+let pianoSourceNode = null;
+
+const startBtn = document.getElementById('startBtn');
+const statusDiv = document.getElementById('status');
+
+const piano = new Audio("https://raw.githubusercontent.com/WoodyWoo-Coder/phigros-test/main/Elise.wav");
+piano.crossOrigin = "anonymous";
+
+const BPM = 70.5;
+const stepDuration = (60 / BPM) / 4; 
+
+let nextStepTime = 0.0;
+let currentStep = 0;
+
+// Cycle A Definitions (6 steps) -> Corrected Bass and Snare alignments
+const bassPatternA =  [1, 0, 0, 1, 0, 0]; // B 0 0 B 0 0
+const snarePatternA = [0, 0, 0, 0, 1, 0]; // 0 0 0 0 S 0
+const hihatPatternA = [1, 1, 1, 1, 1, 1]; // H H H H H H
+
+// Fill Pattern 1 (Cycles 4, 8, 12, 26, 30, 34, 48) -> C B C B S S
+const cymbalPatternFill = [1, 0, 1, 0, 0, 0];
+const bassPatternFill =   [0, 1, 0, 1, 0, 0];
+const snarePatternFill =  [0, 0, 0, 0, 1, 1];
+
+// Fill Pattern 2 (Cycles 7, 29) -> B B 0 B S S
+const bassPatternAltFillDouble =  [1, 1, 0, 1, 0, 0];
+const snarePatternAltFillDouble = [0, 0, 0, 0, 1, 1];
+
+// Fill Pattern 3 (Cycles 15, 37) -> B B 0 B S 0
+const bassPatternAltFillSingle =  [1, 1, 0, 1, 0, 0];
+const snarePatternAltFillSingle = [0, 0, 0, 0, 1, 0];
+
+// Block Phase Part 1 (Cycles 16-19, 38-41) -> [C+B] 0 B 0 B 0
+const cymbalPatternBlockP1 = [1, 0, 0, 0, 0, 0];
+const bassPatternBlockP1 =   [1, 0, 1, 0, 1, 0];
+
+// Block Phase Part 2 (Cycles 20-21, 42-43) -> B B S B S S
+const bassPatternBlockP2 =   [1, 1, 0, 1, 0, 0];
+const snarePatternBlockP2 =  [0, 0, 1, 0, 1, 1];
+
+// Block Phase Final Outro Roll (Cycles 22, 44) -> S S S S S S
+const snarePatternRoll = [1, 1, 1, 1, 1, 1];
+
+// Routing Track Sets
+const fillCycles = new Set([4, 8, 12, 26, 30, 34, 48]);
+const altFillDoubleCycles = new Set([7, 29]);
+const altFillSingleCycles = new Set([15, 37]);
+const cymbalSwapCycles = new Set([1, 5, 9, 13, 23, 27, 31, 35, 38, 45, 49]);
+
+const blockPart1Cycles = new Set([16, 17, 18, 19, 38, 39, 40, 41]);
+const blockPart2Cycles = new Set([20, 21, 42, 43]);
+const blockRollCycles = new Set([22, 44]);
+
+async function loadSample(url) {
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    return await audioCtx.decodeAudioData(arrayBuffer);
+}
+
+async function loadAssets() {
+    statusDiv.innerText = "Status: Downloading drum kit assets...";
+    try {
+        bassBuffer = await loadSample("https://raw.githubusercontent.com/scratchfoundation/scratch-audio/develop/sound-files/drums/BassDrum(1b)_22k.wav");
+        snareBuffer = await loadSample("https://raw.githubusercontent.com/scratchfoundation/scratch-audio/develop/sound-files/drums/SnareDrum(1)_22k.wav");
+        hihatBuffer = await loadSample("https://raw.githubusercontent.com/scratchfoundation/scratch-audio/develop/sound-files/drums/HiHatClosed(1)_22k.wav");
+        cymbalBuffer = await loadSample("https://raw.githubusercontent.com/scratchfoundation/scratch-audio/develop/sound-files/drums/HiHatOpen(2)_22k.wav");
+        statusDiv.innerText = "Status: Assets loaded! Ready to play.";
+    } catch (e) {
+        statusDiv.innerText = "Status: Error loading assets.";
+        console.error(e);
+    }
+}
+
+function playBuffer(buffer, time, volume = 1.0, playbackRate = 1.0) {
+    let source = audioCtx.createBufferSource();
+    let gainNode = audioCtx.createGain();
+    
+    source.buffer = buffer;
+    source.playbackRate.value = playbackRate;
+    gainNode.gain.setValueAtTime(volume, time);
+    
+    source.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    source.start(time);
+}
+
+function stopSequence() {
+    clearTimeout(timerId);
+    piano.pause();
+    isPlaying = false;
+    startBtn.innerText = "Play Arrangement";
+    statusDiv.innerText = "Status: Song Finished.";
+}
+
+function scheduler() {
+    while (nextStepTime < audioCtx.currentTime + 0.1 && isPlaying) {
+        scheduleStep(currentStep, nextStepTime);
+        nextStepTime += stepDuration;
+        currentStep++;
+    }
+    if (isPlaying) {
+        timerId = setTimeout(scheduler, 25);
+    }
+}
+
+function scheduleStep(step, time) {
+    // 1. Startup Section (Intro)
+    if (step <= 10) {
+        if (step % 2 === 0) {
+            playBuffer(hihatBuffer, time, 0.20);
+        }
+    } 
+    // 2. Main Cycles
+    else {
+        let loopStep = step - 12; 
+        let currentCycle = Math.floor(loopStep / 6) + 1; 
+        let loopIndex = loopStep % 6;
+
+        if (loopStep === 300) { 
+            playBuffer(bassBuffer, time, 1.3); 
+            setTimeout(stopSequence, 1000);   
+            return;
+        } else if (loopStep > 300) {
+            return;
+        }
+
+        // Branch 1: Phase Block P1
+        if (blockPart1Cycles.has(currentCycle)) {
+            if (cymbalPatternBlockP1[loopIndex] === 1) playBuffer(cymbalBuffer, time, 0.5, 0.8);
+            if (bassPatternBlockP1[loopIndex] === 1)   playBuffer(bassBuffer, time, 1.3);
+        }
+        // Branch 2: Phase Block P2
+        else if (blockPart2Cycles.has(currentCycle)) {
+            if (bassPatternBlockP2[loopIndex] === 1)  playBuffer(bassBuffer, time, 1.3);
+            if (snarePatternBlockP2[loopIndex] === 1) playBuffer(snareBuffer, time, 0.35);
+        }
+        // Branch 3: Phase Block Final Snare Roll Outros
+        else if (blockRollCycles.has(currentCycle)) {
+            if (snarePatternRoll[loopIndex] === 1)    playBuffer(snareBuffer, time, 0.35);
+        }
+        // Branch 4: Fill CBCBSS (With 1.5x Bass Volume Boost)
+        else if (fillCycles.has(currentCycle)) {
+            if (cymbalPatternFill[loopIndex] === 1) playBuffer(cymbalBuffer, time, 0.5, 0.8);
+            if (bassPatternFill[loopIndex] === 1)   playBuffer(bassBuffer, time, 1.95);
+            if (snarePatternFill[loopIndex] === 1)  playBuffer(snareBuffer, time, 0.35);
+        } 
+        // Branch 5: Fill BB0BSS (Double Snare Ending)
+        else if (altFillDoubleCycles.has(currentCycle)) {
+            if (bassPatternAltFillDouble[loopIndex] === 1)  playBuffer(bassBuffer, time, 1.3);
+            if (snarePatternAltFillDouble[loopIndex] === 1) playBuffer(snareBuffer, time, 0.35);
+        }
+        // Branch 6: Fill BB0BS0 (Single Snare Ending)
+        else if (altFillSingleCycles.has(currentCycle)) {
+            if (bassPatternAltFillSingle[loopIndex] === 1)  playBuffer(bassBuffer, time, 1.3);
+            if (snarePatternAltFillSingle[loopIndex] === 1) playBuffer(snareBuffer, time, 0.35);
+        } 
+        // Branch 7: Cycle A (w/ corrected B00B00 and 0000S0 alignments)
+        else {
+            if (bassPatternA[loopIndex] === 1)  playBuffer(bassBuffer, time, 1.3);
+            if (snarePatternA[loopIndex] === 1) playBuffer(snareBuffer, time, 0.35);
+            
+            if (hihatPatternA[loopIndex] === 1) {
+                if (loopIndex === 0 && cymbalSwapCycles.has(currentCycle)) {
+                    playBuffer(cymbalBuffer, time, 0.5, 0.8);
+                } else {
+                    playBuffer(hihatBuffer, time, 0.10);
+                }
+            }
+        }
+    }
+
+    // 3. Piano Entry Calculation
+    if (step === 4) {
+        let earlyTargetTime = time - 0.065;
+        let delay = earlyTargetTime - audioCtx.currentTime;
+        if (delay < 0) delay = 0;
+        setTimeout(() => {
+            if (isPlaying) piano.play().catch(e => console.error(e));
+        }, delay * 1000);
+    }
+}
+
+startBtn.addEventListener('click', async () => {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        await loadAssets();
+        pianoSourceNode = audioCtx.createMediaElementSource(piano);
+        pianoGainNode = audioCtx.createGain();
+        pianoGainNode.gain.setValueAtTime(0.40, audioCtx.currentTime);
+        pianoSourceNode.connect(pianoGainNode);
+        pianoGainNode.connect(audioCtx.destination);
+    }
+
+    if (!isPlaying) {
+        audioCtx.resume();
+        currentStep = 0;
+        piano.currentTime = 0; 
+        nextStepTime = audioCtx.currentTime + 0.05;
+        isPlaying = true;
+        scheduler();
+        startBtn.innerText = "Stop";
+        statusDiv.innerText = "Status: Running under 70.5 BPM logic with corrected Cycle A groove layout.";
+    } else {
+        clearTimeout(timerId);
+        piano.pause();
+        isPlaying = false;
+        startBtn.innerText = "Play Arrangement";
+        statusDiv.innerText = "Status: Stopped.";
+    }
+});
+</script>
+</body>
+</html>
